@@ -1,0 +1,214 @@
+# ADVertizement data
+dim advdata(30)
+# Battery measurement percentage
+dim bat_pct
+# Battery measurement voltage
+dim bat_voltage
+# Audible signal state tracker
+dim signal_state
+
+# system boot event listener
+event system_boot(major, minor, patch, build, ll_version, protocol_version, hw)
+
+  # Turn off the LED
+  call hardware_io_port_config_direction(0, $01)
+  call hardware_io_port_write(0, $01, $00)
+
+  # Set advertisement interval to 20-30ms.
+  # Use all three advertisement channels
+  call gap_set_adv_parameters(32, 48, 7)
+
+  # Initialize iBeacon ADV data
+  # Flags = LE General Discovery, single mode device (02 01 06)
+  advdata(0:1) = $02
+  advdata(1:1) = $01
+  advdata(2:1) = $06
+  # Manufacturer data
+  advdata(3:1) = $1a
+  advdata(4:1) = $ff
+  # Preamble
+  advdata(5:1) = $4c
+  advdata(6:1) = $00
+  advdata(7:1) = $02
+  advdata(8:1) = $15
+
+  # UUID: 50ccdbcc-dffb-48d2-b060-d0f5a71096e0
+  advdata(9:1) = $50
+  advdata(10:1) = $cc
+  advdata(11:1) = $db
+  advdata(12:1) = $cc
+  advdata(13:1) = $df
+  advdata(14:1) = $fb
+  advdata(15:1) = $48
+  advdata(16:1) = $d2
+  advdata(17:1) = $b0
+  advdata(18:1) = $60
+  advdata(19:1) = $d0
+  advdata(20:1) = $f5
+  advdata(21:1) = $a7
+  advdata(22:1) = $10
+  advdata(23:1) = $96
+  advdata(24:1) = $e0
+ 
+  # Major : 00 00
+  advdata(25:1) = $00
+  advdata(26:1) = $00
+ 
+  # Minor : 00 00
+  advdata(27:1) = $00
+  advdata(28:1) = $00
+ 
+  # Measured TX power : -58
+  advdata(29:1) = $c6 
+  # Set advertisement data
+  call gap_set_adv_data(0, 30, advdata(0:30))
+ 
+  # Set to advertising mode - with user data
+  call gap_set_mode(gap_user_data, gap_undirected_connectable)
+
+end
+
+# Disconnection event listener
+event connection_disconnected(handle, result)
+  # Set advertisement interval to 20-30ms.
+  # Use all three advertisement channels
+  call gap_set_adv_parameters(32, 48, 7)
+
+  # Set to advertising mode - with user data
+  call gap_set_mode(gap_user_data, gap_undirected_connectable)
+end
+
+event attributes_user_read_request(connection, handle, offset, maxsize)
+    # check for battery characteristic read request
+    if handle = c_battery_percent || handle = c_battery_voltage then
+        # queue ADC reading (VDD/3 source, 12 effective bits, internal 1.24v reference)
+        call hardware_adc_read(15, 3, 0)
+
+	# Save whether we're doing percentage
+	if handle = c_battery_percent then
+            bat_pct = 1
+        else
+            bat_pct = 0
+        end if
+        
+        # for details on the ADC operation, reference voltages, etc., please see
+        # Chapter 12 (ADC) of the CC2540 User Guide:
+        #     http://www.ti.com/lit/swru191
+        
+        # NOTE: if the DC/DC converter is in use and the <pmux> tag in hardware.xml
+        # has enabled regulator control, then the BLE stack will **AUTOMATICALLY**
+        # put the converter into bypass mode during an ADC read on channel 15. This
+        # ensures that the actual battery voltage is read, and not a regulated ~2v
+        # level. You **DO NOT** need to handle this manually.
+    end if
+end
+
+event hardware_adc_result(input, value)
+    # check for internal AVDD/3 result (battery channel)
+    if input = 15 then
+        # ADC behavior:
+        # - Range is [-2048, +2047] when 12 ENOB is selected
+        # - Value will be left-aligned in a 16-bit container, meaning the direct
+        #       result will be in the range [-32768, +32767] and must be shifted
+        # - Actual battery readings will only ever be positive, so we only care
+        #       about the positive part of the range [0, +32767] or 0x0000-0x7FFF
+        # - VDD voltage = (value >> 4) * 3 * 1.24 / 2048
+        
+        # Since no "float" data type exists in BGScript, we must convert the 
+        # measurement manually, losing only as much precision as we have to in
+        # the process.
+
+        # Determine if we're doing percentage
+        if bat_pct = 1 then
+
+            # To scale the read value [0, +32767] to the range [0, 100] properly
+            # we have to determine the 0% reading and the 100% reading based on
+            # operating voltages.
+            #
+            # - A "full" battery will read ~3.6v:
+            #   --> (3.6v/3) * (32767/1.24v) = 31710
+            # - An "empty" battery will read ~3.0v:
+            #   --> (3.0v/3) * (32767/1.24v) = 26425
+        
+            # This means we must scale [+26425, +31710] to [0, +100]
+        
+            bat_pct = (value - 26425) * 100 / (31710 - 26425)
+        
+            # NOTE: Voltage is not a good way to determine LiFePO4 battery capacity, because
+            # the voltage stays very stable during most of the discharge cycle.
+        
+            # Enforce 0% / 100% bounds
+            if bat_pct > 100 then
+                bat_pct = 100
+            end if
+            if bat_pct < 0 then
+                bat_pct = 0
+            end if
+
+            # Respond with calculated percent (connection=0, result=0, length=1, data=bat_pct)
+            call attributes_user_read_response(0, 0, 1, bat_pct)
+
+        else
+
+            # Calculate the voltage (in 1/10 V)
+            bat_voltage = value * 372 / 327670
+
+            # Respond with calculated voltage
+            call attributes_user_read_response(0, 0, 1, bat_voltage)
+
+        end if
+    end if
+end
+
+event attributes_value(connection, reason, handle, offset, value_len, value_data)
+    # check for immediate alert write request
+    if handle = c_immediate_alert then
+        if value_data(0:1) != 0 then
+            # Initialize the audible signal
+            signal_state = 15
+            # LED on
+            call hardware_io_port_write(0, $01, $01)
+            # 2500 Hz, 0.7 duty cycle on P03
+            call hardware_timer_comparator(1, 0, 6, 12800)
+            call hardware_timer_comparator(1, 1, 6, 8960)
+            # Start the timer for 50 ms
+            call hardware_set_soft_timer(1638, 1, 1)
+        end if
+    end if
+end
+
+event hardware_soft_timer(handle)
+    # Only service our timer
+    if handle != 1 then
+        return
+    end if
+    # Are we in an odd state (beeping)?
+    if signal_state & $01 then
+        # LED off
+        call hardware_io_port_write(0, $01, $00)
+        # 0 Hz on P03
+        call hardware_timer_comparator(1, 0, 1, 12800)
+        call hardware_timer_comparator(1, 1, 1, 8960)
+        # Start the timer for 450 ms if not at the end of the signal
+        if signal_state != 1 then
+            call hardware_set_soft_timer(14746, 1, 1)
+        end if
+    else
+        # LED on
+        call hardware_io_port_write(0, $01, $01)
+        # 2500 Hz, 0.7 duty cycle on P03
+        call hardware_timer_comparator(1, 0, 6, 12800)
+        call hardware_timer_comparator(1, 1, 6, 8960)
+        # Start the timer for 50 ms
+        call hardware_set_soft_timer(1638, 1, 1)
+    end if
+    # Decrement the signal state
+    signal_state = signal_state - 1
+end
+
+event connection_status(connection, flags, address, address_type, conn_interval, timeout, latency, bonding)
+    if flags & 4 then
+        # Newly created connection, request a parameter change
+        call connection_update(connection, 32, 640, latency, timeout)
+    end if 
+end

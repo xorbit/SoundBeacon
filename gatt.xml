@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+ 
+  <service uuid="1800">
+    <description>Generic Access Profile</description>
+ 
+    <characteristic uuid="2a00">
+      <properties read="true" const="true"/>
+      <value>SoundBeacon</value>
+    </characteristic>
+ 
+    <characteristic uuid="2a01">
+      <properties read="true" const="true"/>
+      <value type="hex">0200</value>
+    </characteristic>
+
+  </service>
+ 
+  <service uuid="180a">
+    <description>Device Information</description>
+ 
+    <characteristic uuid="2a29">
+      <properties read="true" const="true" />
+      <value>Bluegiga BLE113</value>
+    </characteristic>
+ 
+    <characteristic uuid="2a24">
+      <properties read="true" const="true" />
+      <value>113</value>
+    </characteristic>
+ 
+    <characteristic uuid="2a26">
+      <properties read="true" const="true" />
+      <value>0.0.1</value>
+    </characteristic>
+ 
+    <characteristic uuid="2a27">
+      <properties read="true" const="true" />
+      <value>1.0</value>
+    </characteristic>
+
+  </service>
+
+  <service uuid="180f" advertise="true">
+    <description>Battery Service</description>
+
+    <characteristic uuid="2a19" id="c_battery_percent">
+      <properties read="true" />
+      <value length="1" type="user" />
+    </characteristic>
+
+  </service>
+
+  <service uuid="1802" advertise="true">
+    <description>Immediate Alert</description>
+
+    <characteristic uuid="2a06" id="c_immediate_alert">
+      <properties write_no_response="true" />
+      <value length="1" type="user" />
+    </characteristic>
+
+  </service>
+
+  <service uuid="bfe79ae0-850b-11e6-bdf4-0800200c9a66" advertise="true">
+    <description>Telemetry</description>
+
+    <characteristic uuid="bfe79ae1-850b-11e6-bdf4-0800200c9a66" id="c_battery_voltage">
+      <properties read="true" />
+      <value length="1" type="user" />
+    </characteristic>
+
+  </service>
+
+</configuration>
