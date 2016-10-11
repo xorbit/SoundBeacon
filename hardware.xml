@@ -1,9 +1,8 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 
 <hardware>
-    <!--
     <sleeposc enable="true" ppm="30" />
-    -->
+    <wakeup_pin enable="true" port="0" pin="0"/>
     <usb enable="false" endpoint="none" />
     <txpower power="15" bias="5" />
     <script enable="true" />
